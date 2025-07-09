@@ -50,6 +50,7 @@ def decode_base64_to_image(base64_str):
     except Exception as e:
         raise ValueError(f"Invalid base64 string: {e}")
 
+
 def handler(event):
     try:
         validated_input = validate(event["input"], schema)
@@ -61,6 +62,36 @@ def handler(event):
         if "model" not in globals():
             model = load_model()
 
+        def on_step_end_callback(pipeline, step: int, timestep: int, callback_kwargs: dict):
+            # Send progress update every 5 steps
+            if (step + 1) % 5 != 0:
+                return {"latents": callback_kwargs["latents"]}
+
+            latents = callback_kwargs["latents"]
+
+            # Unpack latents, decode, and convert to PIL
+            height = 1024
+            width = 1024
+            unpacked_latents = pipeline._unpack_latents(latents, height, width, pipeline.vae_scale_factor)  # (1, 16, 128, 128)
+            with torch.no_grad():
+                unpacked_latents = (
+                    unpacked_latents / pipeline.vae.config.scaling_factor
+                ) + pipeline.vae.config.shift_factor
+                decoded_images = pipeline.vae.decode(unpacked_latents, return_dict=False)[0]
+                
+                # Use the pipeline's image processor to convert to PIL
+                pil_images = pipeline.image_processor.postprocess(decoded_images, output_type="pil")
+                
+                # Encode the first image to base64
+                image_base64 = encode_image_to_base64(pil_images[0])
+
+                runpod.serverless.progress_update(event, {
+                    "step": step + 1,
+                    "image": image_base64
+                })
+
+            return {"latents": latents}
+
         image_source = validated_input["validated_input"]["image"]
         prompt = validated_input["validated_input"]["prompt"]
 
@@ -70,8 +101,12 @@ def handler(event):
             input_image = decode_base64_to_image(image_source)
 
         input_image = input_image.convert("RGB")
-        output_image = model(image=input_image, prompt=prompt, guidance_scale=2.5).images[0]
+        print("_callback_tensor_inputs", model._callback_tensor_inputs)
+
+        output_image = model(image=input_image, prompt=prompt, guidance_scale=2.5, callback_on_step_end=on_step_end_callback,
+    callback_on_step_end_tensor_inputs=["latents"]).images[0]
         
+        print("output_image", output_image)
         # Convert the image to base64
         image_base64 = encode_image_to_base64(output_image)
 
