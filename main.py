@@ -32,9 +32,16 @@ def load_model():
 
     return pipeline
 
-def encode_image_to_base64(image):
+def encode_image_to_base64(image, use_jpeg=False):
     buffered = BytesIO()
-    image.save(buffered, format="PNG")
+    if use_jpeg:
+        # Convert to RGB if it's RGBA, as JPEG doesn't support alpha channel
+        if image.mode == 'RGBA':
+            image = image.convert('RGB')
+        # Save as JPEG with a specific quality for smaller size
+        image.save(buffered, format="JPEG", quality=85)
+    else:
+        image.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
 def decode_base64_to_image(base64_str):
@@ -82,8 +89,13 @@ def handler(event):
                 # Use the pipeline's image processor to convert to PIL
                 pil_images = pipeline.image_processor.postprocess(decoded_images, output_type="pil")
                 
-                # Encode the first image to base64
-                image_base64 = encode_image_to_base64(pil_images[0])
+                # For progress updates, create a smaller and compressed preview image
+                preview_image = pil_images[0].copy()
+                # Resize to a smaller resolution for faster transfer
+                preview_image.thumbnail((512, 512), Image.Resampling.LANCZOS)
+                
+                # Encode the preview image to a smaller JPEG format
+                image_base64 = encode_image_to_base64(preview_image, use_jpeg=True)
 
                 runpod.serverless.progress_update(event, {
                     "step": step + 1,
@@ -101,7 +113,6 @@ def handler(event):
             input_image = decode_base64_to_image(image_source)
 
         input_image = input_image.convert("RGB")
-        print("_callback_tensor_inputs", model._callback_tensor_inputs)
 
         output_image = model(image=input_image, prompt=prompt, guidance_scale=2.5, callback_on_step_end=on_step_end_callback,
     callback_on_step_end_tensor_inputs=["latents"]).images[0]
