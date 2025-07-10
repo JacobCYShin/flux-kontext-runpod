@@ -75,10 +75,6 @@ def handler(event):
             progress = int(((step + 1) / total_steps) * 100)
 
             if (step + 1) % 5 != 0:
-                runpod.serverless.progress_update(event, {
-                    "progress": progress,
-                    "image": None
-                })
                 return {"latents": callback_kwargs["latents"]}
             
             latents = callback_kwargs["latents"]
