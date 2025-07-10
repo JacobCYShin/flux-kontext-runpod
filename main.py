@@ -74,7 +74,8 @@ def handler(event):
             total_steps = len(pipeline.scheduler.timesteps)
             progress = int(((step + 1) / total_steps) * 100)
 
-            if (step + 1) % 5 != 0:
+            # Send progress update every 5 steps, or on the second to last step to ensure final progress is shown
+            if (step + 1) % 5 != 0 and (step + 1) < (total_steps - 1):
                 return {"latents": callback_kwargs["latents"]}
             
             latents = callback_kwargs["latents"]
