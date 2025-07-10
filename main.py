@@ -133,10 +133,8 @@ def handler(event):
         output_image = model(image=input_image, prompt=prompt, guidance_scale=2.5, callback_on_step_end=on_step_end_callback,
     callback_on_step_end_tensor_inputs=["latents"]).images[0]
         
-        print("output_image", output_image)
         # Convert the image to base64
         image_base64 = encode_image_to_base64(output_image)
-
 
         job_result = {
             "image": image_base64,
