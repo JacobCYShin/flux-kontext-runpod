@@ -1,5 +1,3 @@
-from io import BytesIO
-import base64
 from PIL import Image
 import torch
 import runpod
@@ -8,26 +6,12 @@ from diffusers import FluxKontextPipeline
 from diffusers.utils import load_image
 from nunchaku import NunchakuFluxTransformer2dModel
 from nunchaku.utils import get_precision
-
-
-LATENT_RGB_FACTORS = [
-    [-0.0346,  0.0244,  0.0681],
-    [ 0.0034,  0.0210,  0.0687],
-    [ 0.0275, -0.0668, -0.0433],
-    [-0.0174,  0.0160,  0.0617],
-    [ 0.0859,  0.0721,  0.0329],
-    [ 0.0004,  0.0383,  0.0115],
-    [ 0.0405,  0.0861,  0.0915],
-    [-0.0236, -0.0185, -0.0259],
-    [-0.0245,  0.0250,  0.1180],
-    [ 0.1008,  0.0755, -0.0421],
-    [-0.0515,  0.0201,  0.0011],
-    [ 0.0428, -0.0012, -0.0036],
-    [ 0.0817,  0.0765,  0.0749],
-    [-0.1264, -0.0522, -0.1103],
-    [-0.0280, -0.0881, -0.0499],
-    [-0.1262, -0.0982, -0.0778]
-]
+from utils import (
+    LATENT_RGB_FACTORS,
+    resize_to_target_area,
+    encode_image_to_base64,
+    decode_base64_to_image,
+)
 
 schema = {
     "image": {
@@ -35,6 +19,10 @@ schema = {
         "required": True,
     },
     "prompt": {
+        "type": str,
+        "required": True,
+    },
+    "ratio": {
         "type": str,
         "required": True,
     },
@@ -51,32 +39,6 @@ def load_model():
 
     return pipeline
 
-def encode_image_to_base64(image, use_jpeg=False):
-    buffered = BytesIO()
-    if use_jpeg:
-        # Convert to RGB if it's RGBA, as JPEG doesn't support alpha channel
-        if image.mode == 'RGBA':
-            image = image.convert('RGB')
-        # Save as JPEG with a specific quality for smaller size
-        image.save(buffered, format="JPEG", quality=85)
-    else:
-        image.save(buffered, format="PNG")
-    return base64.b64encode(buffered.getvalue()).decode("utf-8")
-
-def decode_base64_to_image(base64_str):
-    """
-    Decodes a base64 string to an image.
-    """
-    if "," in base64_str:
-        base64_str = base64_str.split(',')[1]
-
-    try:
-        image_data = base64.b64decode(base64_str)
-        return Image.open(BytesIO(image_data))
-    except Exception as e:
-        raise ValueError(f"Invalid base64 string: {e}")
-
-
 def handler(event):
     try:
         validated_input = validate(event["input"], schema)
@@ -88,6 +50,23 @@ def handler(event):
         if "model" not in globals():
             model = load_model()
 
+        validated_input = validated_input["validated_input"]
+
+        image_source = validated_input["image"]
+        prompt = validated_input["prompt"]
+        ratio = validated_input["ratio"]
+
+        if image_source.startswith(("http://", "https://")):
+            input_image = load_image(image_source)
+        else:
+            input_image = decode_base64_to_image(image_source)
+
+        input_image = input_image.convert("RGB")
+        
+        try:
+            width, height = resize_to_target_area(input_image, ratio)
+        except ValueError as e:
+            return {"error": str(e)}
         
         def on_step_end_callback(pipeline, step: int, timestep: int, callback_kwargs: dict):
             # Send progress update every 5 steps
@@ -97,8 +76,6 @@ def handler(event):
             latents = callback_kwargs["latents"]
 
             # Unpack latents, decode, and convert to PIL
-            height = 1024
-            width = 1024
             unpacked_latents = pipeline._unpack_latents(latents, height, width, pipeline.vae_scale_factor)  # (1, 16, 128, 128)
             with torch.no_grad():
                 latent_rgb_factors = torch.tensor(LATENT_RGB_FACTORS, dtype=torch.float32, device='cpu')
@@ -120,17 +97,7 @@ def handler(event):
 
             return {"latents": latents}
 
-        image_source = validated_input["validated_input"]["image"]
-        prompt = validated_input["validated_input"]["prompt"]
-
-        if image_source.startswith(("http://", "https://")):
-            input_image = load_image(image_source)
-        else:
-            input_image = decode_base64_to_image(image_source)
-
-        input_image = input_image.convert("RGB")
-
-        output_image = model(image=input_image, prompt=prompt, guidance_scale=2.5, callback_on_step_end=on_step_end_callback,
+        output_image = model(image=input_image, prompt=prompt, width=width, height=height, guidance_scale=2.5, callback_on_step_end=on_step_end_callback,
     callback_on_step_end_tensor_inputs=["latents"]).images[0]
         
         # Convert the image to base64
