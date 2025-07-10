@@ -70,9 +70,17 @@ def handler(event):
         
         def on_step_end_callback(pipeline, step: int, timestep: int, callback_kwargs: dict):
             # Send progress update every 5 steps
-            if (step + 1) % 5 != 0:
-                return {"latents": callback_kwargs["latents"]}
+            
+            total_steps = len(pipeline.scheduler.timesteps)
+            progress = int(((step + 1) / total_steps) * 100)
 
+            if (step + 1) % 5 != 0:
+                runpod.serverless.progress_update(event, {
+                    "progress": progress,
+                    "image": None
+                })
+                return {"latents": callback_kwargs["latents"]}
+            
             latents = callback_kwargs["latents"]
 
             # Unpack latents, decode, and convert to PIL
@@ -91,7 +99,7 @@ def handler(event):
                 image_base64 = encode_image_to_base64(pil_image, use_jpeg=True)
 
                 runpod.serverless.progress_update(event, {
-                    "step": step + 1,
+                    "progress": progress,
                     "image": image_base64
                 })
 
