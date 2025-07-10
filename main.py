@@ -10,6 +10,25 @@ from nunchaku import NunchakuFluxTransformer2dModel
 from nunchaku.utils import get_precision
 
 
+LATENT_RGB_FACTORS = [
+    [-0.0346,  0.0244,  0.0681],
+    [ 0.0034,  0.0210,  0.0687],
+    [ 0.0275, -0.0668, -0.0433],
+    [-0.0174,  0.0160,  0.0617],
+    [ 0.0859,  0.0721,  0.0329],
+    [ 0.0004,  0.0383,  0.0115],
+    [ 0.0405,  0.0861,  0.0915],
+    [-0.0236, -0.0185, -0.0259],
+    [-0.0245,  0.0250,  0.1180],
+    [ 0.1008,  0.0755, -0.0421],
+    [-0.0515,  0.0201,  0.0011],
+    [ 0.0428, -0.0012, -0.0036],
+    [ 0.0817,  0.0765,  0.0749],
+    [-0.1264, -0.0522, -0.1103],
+    [-0.0280, -0.0881, -0.0499],
+    [-0.1262, -0.0982, -0.0778]
+]
+
 schema = {
     "image": {
         "type": str,
@@ -69,6 +88,7 @@ def handler(event):
         if "model" not in globals():
             model = load_model()
 
+        
         def on_step_end_callback(pipeline, step: int, timestep: int, callback_kwargs: dict):
             # Send progress update every 5 steps
             if (step + 1) % 5 != 0:
@@ -81,21 +101,17 @@ def handler(event):
             width = 1024
             unpacked_latents = pipeline._unpack_latents(latents, height, width, pipeline.vae_scale_factor)  # (1, 16, 128, 128)
             with torch.no_grad():
-                unpacked_latents = (
-                    unpacked_latents / pipeline.vae.config.scaling_factor
-                ) + pipeline.vae.config.shift_factor
-                decoded_images = pipeline.vae.decode(unpacked_latents, return_dict=False)[0]
+                latent_rgb_factors = torch.tensor(LATENT_RGB_FACTORS, dtype=torch.float32, device='cpu')
                 
-                # Use the pipeline's image processor to convert to PIL
-                pil_images = pipeline.image_processor.postprocess(decoded_images, output_type="pil")
-                
-                # For progress updates, create a smaller and compressed preview image
-                preview_image = pil_images[0].copy()
-                # Resize to a smaller resolution for faster transfer
-                preview_image.thumbnail((512, 512), Image.Resampling.LANCZOS)
+                rgb = torch.einsum("...lhw,lr -> ...rhw", unpacked_latents.cpu().float(), latent_rgb_factors)
+                rgb = (((rgb + 1) / 2).clamp(0, 1))  # Change scale from -1..1 to 0..1
+                rgb = rgb.movedim(1,-1)
+
+                image_np = (rgb[0] * 255).byte().numpy()
+                pil_image = Image.fromarray(image_np)
                 
                 # Encode the preview image to a smaller JPEG format
-                image_base64 = encode_image_to_base64(preview_image, use_jpeg=True)
+                image_base64 = encode_image_to_base64(pil_image, use_jpeg=True)
 
                 runpod.serverless.progress_update(event, {
                     "step": step + 1,
