@@ -11,9 +11,6 @@ from utils import (
     resize_to_target_area,
     encode_image_to_base64,
     decode_base64_to_image,
-    is_s3_url,
-    download_image_from_s3,
-    upload_image_to_s3,
 )
 
 schema = {
@@ -28,11 +25,6 @@ schema = {
     "ratio": {
         "type": str,
         "required": True,
-    },
-    "output_format": {
-        "type": str,
-        "required": False,
-        "default": "base64",  # "base64" 또는 "s3_url"
     },
 }
 
@@ -63,19 +55,10 @@ def handler(event):
         image_source = validated_input["image"]
         prompt = validated_input["prompt"]
         ratio = validated_input["ratio"]
-        output_format = validated_input.get("output_format", "base64")
 
-        # 이미지 소스 처리 (S3 URL, HTTP URL, 또는 base64)
-        if is_s3_url(image_source):
-            # S3 URL에서 이미지 다운로드
-            input_image = download_image_from_s3(image_source)
-            if input_image is None:
-                return {"error": "S3에서 이미지 다운로드 실패"}
-        elif image_source.startswith(("http://", "https://")):
-            # 일반 HTTP URL에서 이미지 로드
+        if image_source.startswith(("http://", "https://")):
             input_image = load_image(image_source)
         else:
-            # base64 디코딩
             input_image = decode_base64_to_image(image_source)
 
         input_image = input_image.convert("RGB")
@@ -122,25 +105,12 @@ def handler(event):
         output_image = model(image=input_image, prompt=prompt, width=width, height=height, guidance_scale=2.5, callback_on_step_end=on_step_end_callback,
     callback_on_step_end_tensor_inputs=["latents"]).images[0]
         
-        # 출력 형식에 따라 처리
-        if output_format == "s3_url":
-            # S3에 업로드하고 URL 반환
-            image_url = upload_image_to_s3(output_image)
-            if image_url is None:
-                return {"error": "S3 업로드 실패"}
-            
-            job_result = {
-                "image_url": image_url,
-                "format": "s3_url"
-            }
-        else:
-            # base64 인코딩 (기본값)
-            image_base64 = encode_image_to_base64(output_image)
-            
-            job_result = {
-                "image": image_base64,
-                "format": "base64"
-            }
+        # Convert the image to base64
+        image_base64 = encode_image_to_base64(output_image)
+
+        job_result = {
+            "image": image_base64,
+        }
 
         return job_result
     except Exception as e:

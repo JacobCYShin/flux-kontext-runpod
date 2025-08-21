@@ -7,11 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_PREFER_BINARY=1 \
     PYTHONUNBUFFERED=1 \
     CMAKE_BUILD_PARALLEL_LEVEL=8 \
-    HF_TOKEN={Your Hugging Face Token} \
-    AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \
-    AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
-    AWS_REGION=${AWS_REGION:-us-east-1} \
-    S3_BUCKET_NAME=${S3_BUCKET_NAME}
+    HF_TOKEN={Your Hugging Face Token}
 
 # ───────────────────────────────────────
 # 1) 시스템 패키지 & Python 3.11 설치
@@ -53,9 +49,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install --no-cache-dir \
         https://github.com/mit-han-lab/nunchaku/releases/download/v0.3.2dev20250701/nunchaku-0.3.2.dev20250701+torch2.6-cp311-cp311-linux_x86_64.whl && \
     python -m pip install --no-cache-dir \
-        git+https://github.com/runpod/runpod-python.git && \
-    # S3 지원을 위한 boto3 설치
-    python -m pip install --no-cache-dir boto3
+        git+https://github.com/runpod/runpod-python.git
 
 # ───────────────────────────────────────
 # 4) 모델 체크포인트 미리 받아두기
