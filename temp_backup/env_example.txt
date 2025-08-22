@@ -1,0 +1,18 @@
+# Flux-Kontext RunPod 테스트 환경변수 설정
+# 이 파일을 .env로 복사하고 실제 값으로 수정하세요
+
+# RunPod API 설정
+RUNPOD_API_KEY=your_runpod_api_key_here
+RUNPOD_FLUX_KONTEXT_ENDPOINT=https://your-pod-id-your-endpoint.runpod.net
+
+# AWS S3 설정 (선택사항 - S3 업로드/다운로드 사용 시)
+AWS_ACCESS_KEY_ID=your_aws_access_key_id
+AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
+AWS_REGION=us-east-1
+S3_BUCKET_NAME=your_s3_bucket_name
+
+# 참고사항:
+# 1. RUNPOD_API_KEY: RunPod 대시보드에서 API 키를 생성하여 설정
+# 2. RUNPOD_FLUX_KONTEXT_ENDPOINT: RunPod Pod 생성 후 제공되는 엔드포인트 URL
+# 3. AWS 설정은 S3를 사용하지 않을 경우 생략 가능
+# 4. 이 파일을 .env로 복사한 후 실제 값으로 수정하세요

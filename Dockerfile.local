@@ -6,14 +6,12 @@ FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_PREFER_BINARY=1 \
     PYTHONUNBUFFERED=1 \
-    CMAKE_BUILD_PARALLEL_LEVEL=8
-
-# # Runpod에서는 환경변수 설정을 해두기에 주석처리
-# ENV HF_TOKEN={Your Hugging Face Token} \
-#     AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \
-#     AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
-#     AWS_REGION=${AWS_REGION:-us-east-1} \
-#     S3_BUCKET_NAME=${S3_BUCKET_NAME}
+    CMAKE_BUILD_PARALLEL_LEVEL=8 \ 
+    HF_TOKEN={Your Hugging Face Token} \
+    AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \
+    AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
+    AWS_REGION=${AWS_REGION:-us-east-1} \
+    S3_BUCKET_NAME=${S3_BUCKET_NAME}
 
 # ───────────────────────────────────────
 # 1) 시스템 패키지 & Python 3.11 설치
@@ -62,12 +60,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # # ───────────────────────────────────────
 # # 4) 모델 체크포인트 미리 받아두기
 # # ───────────────────────────────────────
-# # Runpod에서는 미리 체크포인트를 다운로드 해두기에 주석처리
-# RUN huggingface-cli download \
-#         mit-han-lab/nunchaku-flux.1-kontext-dev \
-#         svdq-int4_r32-flux.1-kontext-dev.safetensors
+RUN huggingface-cli download \
+        mit-han-lab/nunchaku-flux.1-kontext-dev \
+        svdq-int4_r32-flux.1-kontext-dev.safetensors
 
-# RUN huggingface-cli download black-forest-labs/FLUX.1-Kontext-dev --exclude "flux1-kontext-dev.safetensors" "transformer/*" --token ${HF_TOKEN}
+RUN huggingface-cli download black-forest-labs/FLUX.1-Kontext-dev --exclude "flux1-kontext-dev.safetensors" "transformer/*" --token ${HF_TOKEN}
 
 
 # ───────────────────────────────────────
@@ -81,7 +78,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # 6) 애플리케이션 코드
 # ───────────────────────────────────────
 WORKDIR /app
-COPY main_runpod.py /app/main.py
+COPY main.py /app/main.py
 COPY utils.py /app/utils.py
 
 CMD ["python", "-u", "/app/main.py"]
