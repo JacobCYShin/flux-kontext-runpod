@@ -84,10 +84,4 @@ WORKDIR /app
 COPY main_runpod.py /app/main.py
 COPY utils.py /app/utils.py
 
-# 헬스체크 (서버가 시작되었는지 간단 확인)
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD pgrep -f "main.py" || exit 1
-
-# 포트 노출
-EXPOSE 8000
-
 CMD ["python", "-u", "/app/main.py"]

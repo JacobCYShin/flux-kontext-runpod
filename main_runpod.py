@@ -1,7 +1,6 @@
 from PIL import Image
 import torch
 import runpod
-import time
 from runpod.serverless.utils.rp_validator import validate
 from diffusers import FluxKontextPipeline
 from diffusers.utils import load_image
@@ -34,6 +33,11 @@ schema = {
         "type": str,
         "required": False,
         "default": "base64",  # "base64" 또는 "s3_url"
+    },
+    "seed": {
+        "type": int,
+        "required": False,
+        "default": None,  # None이면 랜덤 시드 사용
     },
 }
 
@@ -92,28 +96,6 @@ def load_model():
 
 def handler(event):
     try:
-        job_input = event.get("input", {})
-        
-        # Health check 요청 처리
-        if job_input.get("type") == "health_check":
-            return {
-                "status": "healthy",
-                "message": "Flux-Kontext service is running",
-                "timestamp": time.time()
-            }
-        
-        # 모델 목록 조회 요청 처리
-        if job_input.get("type") == "list_models":
-            return {
-                "status": "success",
-                "models": {
-                    "transformer": "mit-han-lab/nunchaku-flux.1-kontext-dev",
-                    "pipeline": "black-forest-labs/FLUX.1-Kontext-dev"
-                },
-                "message": "Available models retrieved successfully"
-            }
-        
-        # 기본 이미지 생성 요청 처리
         validated_input = validate(event["input"], schema)
         if "errors" in validated_input:
             return {"error": validated_input["errors"]}
@@ -129,6 +111,7 @@ def handler(event):
         prompt = validated_input["prompt"]
         ratio = validated_input["ratio"]
         output_format = validated_input.get("output_format", "base64")
+        seed = validated_input.get("seed")
 
         # 이미지 소스 처리 (S3 URL, HTTP URL, 또는 base64)
         if is_s3_url(image_source):
@@ -151,56 +134,48 @@ def handler(event):
             return {"error": str(e)}
         
         def on_step_end_callback(pipeline, step: int, timestep: int, callback_kwargs: dict):
-            """진행 상황을 업데이트하는 콜백 함수"""
+            # Send progress update every 5 steps
+            
             total_steps = len(pipeline.scheduler.timesteps)
             progress = int(((step + 1) / total_steps) * 100)
+
+            # Send progress update every 5 steps, or on the second to last step to ensure final progress is shown
+            if (step + 1) % 5 != 0 and (step + 1) < (total_steps - 1):
+                return {"latents": callback_kwargs["latents"]}
             
-            # 진행 상황 로깅
-            print(f"진행률: {progress}% ({step + 1}/{total_steps})")
+            latents = callback_kwargs["latents"]
 
-            # 5단계마다 또는 마지막 단계에서 진행 상황 업데이트
-            if (step + 1) % 5 == 0 or (step + 1) >= (total_steps - 1):
-                try:
-                    latents = callback_kwargs["latents"]
+            # Unpack latents, decode, and convert to PIL
+            unpacked_latents = pipeline._unpack_latents(latents, height, width, pipeline.vae_scale_factor)  # (1, 16, 128, 128)
+            with torch.no_grad():
+                latent_rgb_factors = torch.tensor(LATENT_RGB_FACTORS, dtype=torch.float32, device='cpu')
+                
+                rgb = torch.einsum("...lhw,lr -> ...rhw", unpacked_latents.cpu().float(), latent_rgb_factors)
+                rgb = (((rgb + 1) / 2).clamp(0, 1))  # Change scale from -1..1 to 0..1
+                rgb = rgb.movedim(1,-1)
 
-                    # Unpack latents, decode, and convert to PIL
-                    unpacked_latents = pipeline._unpack_latents(latents, height, width, pipeline.vae_scale_factor)
-                    with torch.no_grad():
-                        latent_rgb_factors = torch.tensor(LATENT_RGB_FACTORS, dtype=torch.float32, device='cpu')
-                        
-                        rgb = torch.einsum("...lhw,lr -> ...rhw", unpacked_latents.cpu().float(), latent_rgb_factors)
-                        rgb = (((rgb + 1) / 2).clamp(0, 1))  # Change scale from -1..1 to 0..1
-                        rgb = rgb.movedim(1,-1)
+                image_np = (rgb[0] * 255).byte().numpy()
+                pil_image = Image.fromarray(image_np)
+                
+                # Encode the preview image to a smaller JPEG format
+                image_base64 = encode_image_to_base64(pil_image, use_jpeg=True)
 
-                        image_np = (rgb[0] * 255).byte().numpy()
-                        pil_image = Image.fromarray(image_np)
-                        
-                        # Encode the preview image to a smaller JPEG format
-                        image_base64 = encode_image_to_base64(pil_image, use_jpeg=True)
+                runpod.serverless.progress_update(event, {
+                    "progress": progress,
+                    "image": image_base64
+                })
 
-                        # RunPod progress update
-                        runpod.serverless.progress_update(event, {
-                            "progress": progress,
-                            "step": step + 1,
-                            "total_steps": total_steps,
-                            "preview_image": image_base64,
-                            "status": "processing"
-                        })
-                        
-                        print(f"진행 상황 업데이트 완료: {progress}%")
-                except Exception as e:
-                    print(f"진행 상황 업데이트 실패: {e}")
-                    # 진행 상황 업데이트 실패해도 계속 진행
-                    runpod.serverless.progress_update(event, {
-                        "progress": progress,
-                        "step": step + 1,
-                        "total_steps": total_steps,
-                        "status": "processing"
-                    })
+            return {"latents": latents}
 
-            return {"latents": callback_kwargs["latents"]}
-
-        output_image = model(image=input_image, prompt=prompt, width=width, height=height, guidance_scale=2.5, callback_on_step_end=on_step_end_callback,
+        # 시드 설정 (사용자가 지정하지 않으면 랜덤)
+        import random
+        if seed is None:
+            seed = random.randint(1, 1000000)
+            print(f"랜덤 시드 생성: {seed}")
+        else:
+            print(f"사용자 지정 시드: {seed}")
+        
+        output_image = model(image=input_image, prompt=prompt, width=width, height=height, guidance_scale=2.5, seed=seed, callback_on_step_end=on_step_end_callback,
     callback_on_step_end_tensor_inputs=["latents"]).images[0]
         
         # 출력 형식에 따라 처리
@@ -212,9 +187,7 @@ def handler(event):
             
             job_result = {
                 "image_url": image_url,
-                "format": "s3_url",
-                "status": "completed",
-                "progress": 100
+                "format": "s3_url"
             }
         else:
             # base64 인코딩 (기본값)
@@ -222,17 +195,8 @@ def handler(event):
             
             job_result = {
                 "image": image_base64,
-                "format": "base64",
-                "status": "completed",
-                "progress": 100
+                "format": "base64"
             }
-
-        # 최종 완료 상태 업데이트
-        runpod.serverless.progress_update(event, {
-            "progress": 100,
-            "status": "completed",
-            "message": "Image generation completed successfully"
-        })
 
         return job_result
     except Exception as e:

@@ -172,7 +172,7 @@ def upload_image_to_s3(image, file_name=None, use_jpeg=True):
                 file_name = f"flux_kontext_{int(time.time())}_{str(uuid.uuid4())[:8]}"
                 file_name += '.jpg' if use_jpeg else '.png'
             
-            s3_key = f"flux-kontext/{file_name}"
+            s3_key = f"generated-images/{file_name}"
             
             # S3에 업로드
             s3_client.upload_file(tmp_file.name, bucket_name, s3_key)

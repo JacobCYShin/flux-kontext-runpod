@@ -167,12 +167,30 @@ class FluxKontextClient:
         except Exception as e:
             raise FluxKontextTestError(f"이미지 저장 실패: {output_path} - {str(e)}")
     
+    def _download_image_from_s3(self, s3_url: str, output_path: str):
+        """S3 URL에서 이미지를 다운로드하여 로컬에 저장합니다."""
+        try:
+            import requests
+            
+            print(f"📥 S3에서 이미지 다운로드 중: {s3_url}")
+            response = requests.get(s3_url, timeout=60)
+            response.raise_for_status()
+            
+            # 이미지 데이터를 파일로 저장
+            with open(output_path, 'wb') as f:
+                f.write(response.content)
+            
+            print(f"✅ 이미지 다운로드 완료: {output_path}")
+            
+        except Exception as e:
+            raise FluxKontextTestError(f"S3 이미지 다운로드 실패: {s3_url} - {str(e)}")
+
     def test_connection(self) -> dict:
         """서버 연결을 테스트합니다."""
         try:
-            # Health check 요청
+            # Health check 요청 (동기 처리)
             payload = {"input": {"type": "health_check"}}
-            r = self.session.post(self.url_run, json=payload, timeout=30)
+            r = self.session.post(self.url_runsync, json=payload, timeout=30)
             try:
                 j = r.json()
             except Exception:
@@ -185,7 +203,7 @@ class FluxKontextClient:
         """사용 가능한 모델 목록을 조회합니다."""
         try:
             payload = {"input": {"type": "list_models"}}
-            r = self.session.post(self.url_run, json=payload, timeout=30)
+            r = self.session.post(self.url_runsync, json=payload, timeout=30)
             try:
                 j = r.json()
             except Exception:
@@ -201,8 +219,13 @@ class FluxKontextClient:
             connection_test = self.test_connection()
             if connection_test.get("status_code") == 200:
                 response = connection_test.get("response", {})
-                if response.get("status") == "healthy":
+                
+                # RunPod 래핑 해제
+                output = self._unwrap_output(response)
+                
+                if output.get("status") == "healthy":
                     print("✅ RunPod 엔드포인트 연결 성공 (Health Check 통과)")
+                    print(f"   메시지: {output.get('message', 'N/A')}")
                     return True
                 else:
                     print(f"⚠️ 연결은 성공했지만 Health Check 실패: {response}")
@@ -220,8 +243,12 @@ class FluxKontextClient:
             models_test = self.list_models()
             if models_test.get("status_code") == 200:
                 response = models_test.get("response", {})
-                if response.get("status") == "success":
-                    models = response.get("models", {})
+                
+                # RunPod 래핑 해제
+                output = self._unwrap_output(response)
+                
+                if output.get("status") == "success":
+                    models = output.get("models", {})
                     print("✅ 모델 목록 조회 성공:")
                     for model_type, model_path in models.items():
                         print(f"   {model_type}: {model_path}")
@@ -240,11 +267,12 @@ class FluxKontextClient:
                       image_path: str, 
                       prompt: str, 
                       ratio: str = "16:9",
-                      output_format: str = "base64",
+                      output_format: str = "s3_url",
                       use_runsync: bool = True,
                       poll_interval_sec: int = 5,
                       max_wait_sec: int = 300,
-                      use_s3_upload: bool = False) -> dict:
+                      use_s3_upload: bool = True,
+                      seed: int = None) -> dict:
         """
         Flux-Kontext를 사용하여 이미지를 생성합니다.
         
@@ -273,14 +301,15 @@ class FluxKontextClient:
                 image_source = self._image_to_base64(image_path)
             
             # API 요청 데이터 준비
-            payload = {
-                "input": {
-                    "image": image_source,
-                    "prompt": prompt,
-                    "ratio": ratio,
-                    "output_format": output_format
-                }
-            }
+                         payload = {
+                 "input": {
+                     "image": image_source,
+                     "prompt": prompt,
+                     "ratio": ratio,
+                     "output_format": output_format,
+                     "seed": seed
+                 }
+             }
             
             print(f"🚀 Flux-Kontext API 호출 중...")
             print(f"   프롬프트: {prompt}")
@@ -384,8 +413,8 @@ def main():
     parser.add_argument("image_path", help="입력 이미지 파일 경로")
     parser.add_argument("prompt", help="생성할 이미지에 대한 프롬프트")
     parser.add_argument("--ratio", default="16:9", help="이미지 비율 (기본값: 16:9)")
-    parser.add_argument("--output-format", choices=["base64", "s3_url"], default="base64", 
-                       help="출력 형식 (기본값: base64)")
+    parser.add_argument("--output-format", choices=["base64", "s3_url"], default="s3_url", 
+                       help="출력 형식 (기본값: s3_url)")
     parser.add_argument("--use-runsync", action="store_true", default=True,
                        help="동기 실행 사용 (기본값: True)")
     parser.add_argument("--use-async", action="store_true",
@@ -404,12 +433,21 @@ def main():
                        help="모델 목록 조회 테스트만 수행하고 종료")
     parser.add_argument("--use-s3-upload", action="store_true",
                        help="입력 이미지를 S3에 업로드하여 사용")
+    parser.add_argument("--use-base64", action="store_true",
+                       help="base64 방식으로 이미지를 주고받기 (기본값: S3 URL 방식)")
+    parser.add_argument("--seed", type=int, default=None,
+                       help="랜덤 시드 값 (지정하지 않으면 랜덤)")
     
     args = parser.parse_args()
     
     # 실행 방식 확인
     if args.use_async:
         args.use_runsync = False
+    
+    # base64 옵션 처리
+    if args.use_base64:
+        args.output_format = "base64"
+        args.use_s3_upload = False
     
     # 환경변수 확인
     runpod_api_key = os.getenv('RUNPOD_API_KEY')
@@ -466,7 +504,8 @@ def main():
             use_runsync=args.use_runsync,
             poll_interval_sec=args.poll_interval,
             max_wait_sec=args.max_wait,
-            use_s3_upload=args.use_s3_upload
+            use_s3_upload=args.use_s3_upload,
+            seed=args.seed
         )
         
         # 결과 저장
@@ -477,8 +516,12 @@ def main():
             output_path = os.path.join(args.output_dir, f"flux_kontext_output_{timestamp}.png")
             client._save_base64_image(result["image"], output_path)
         elif args.output_format == "s3_url" and "image_url" in result:
-            # S3 URL 출력
+            # S3 URL 출력 및 로컬 다운로드
             print(f"📤 생성된 이미지 S3 URL: {result['image_url']}")
+            
+            # S3 URL에서 로컬로 다운로드
+            output_path = os.path.join(args.output_dir, f"flux_kontext_output_{timestamp}.png")
+            client._download_image_from_s3(result["image_url"], output_path)
         
         # 메타데이터 저장
         if args.save_metadata:
@@ -518,3 +561,5 @@ if __name__ == "__main__":
 # python3 test_runpod_flux_kontext.py asset/bts-jin.jpg "A beautiful landscape" --use-async --poll-interval 10
 # python3 test_runpod_flux_kontext.py asset/bts-jin.jpg "A beautiful landscape" --test-only
 # python3 test_runpod_flux_kontext.py asset/bts-jin.jpg "A beautiful landscape" --test-models
+# python3 test_runpod_flux_kontext.py asset/bts-jin.jpg "A beautiful landscape" --use-base64
+# python3 test_runpod_flux_kontext.py asset/bts-jin.jpg "A beautiful landscape" --seed 12345  # 특정 시드 사용
