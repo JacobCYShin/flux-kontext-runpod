@@ -147,3 +147,6 @@ def main():
 
 if __name__ == "__main__":
     main() 
+
+
+# python test_runpod_flux_kontext.py asset/bts-jin.jpg "A cyberpunk city" --use-s3-upload --output-format s3_url
