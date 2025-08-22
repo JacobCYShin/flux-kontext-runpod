@@ -6,12 +6,13 @@ FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_PREFER_BINARY=1 \
     PYTHONUNBUFFERED=1 \
-    CMAKE_BUILD_PARALLEL_LEVEL=8 \
-    HF_TOKEN={Your Hugging Face Token} \
-    AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \
-    AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
-    AWS_REGION=${AWS_REGION:-us-east-1} \
-    S3_BUCKET_NAME=${S3_BUCKET_NAME}
+    CMAKE_BUILD_PARALLEL_LEVEL=8
+
+# ENV HF_TOKEN={Your Hugging Face Token} \
+#     AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \
+#     AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
+#     AWS_REGION=${AWS_REGION:-us-east-1} \
+#     S3_BUCKET_NAME=${S3_BUCKET_NAME}
 
 # ───────────────────────────────────────
 # 1) 시스템 패키지 & Python 3.11 설치

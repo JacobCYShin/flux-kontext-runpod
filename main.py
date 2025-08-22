@@ -37,8 +37,17 @@ schema = {
 }
 
 def load_model():
+    import os
+    from huggingface_hub import snapshot_download
+    
+    # HF_TOKEN이 설정되어 있는지 확인
+    hf_token = os.getenv("HF_TOKEN")
+    if not hf_token:
+        print("Warning: HF_TOKEN이 설정되지 않았습니다. 공개 모델만 사용 가능합니다.")
+    
+    # transformer 모델 로드 (이미 빌드 시점에 다운로드됨)
     transformer = NunchakuFluxTransformer2dModel.from_pretrained(
-    f"mit-han-lab/nunchaku-flux.1-kontext-dev/svdq-{get_precision()}_r32-flux.1-kontext-dev.safetensors"
+        f"mit-han-lab/nunchaku-flux.1-kontext-dev/svdq-{get_precision()}_r32-flux.1-kontext-dev.safetensors"
     )
 
     pipeline = FluxKontextPipeline.from_pretrained(
