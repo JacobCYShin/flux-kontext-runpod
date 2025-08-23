@@ -34,11 +34,11 @@ schema = {
         "required": False,
         "default": "base64",  # "base64" 또는 "s3_url"
     },
-    "seed": {
-        "type": int,
-        "required": False,
-        "default": None,  # None이면 랜덤 시드 사용
-    },
+    # "seed": {
+    #     "type": int,
+    #     "required": False,
+    #     "default": None,  # None이면 랜덤 시드 사용
+    # },
 }
 
 def load_model():
@@ -111,7 +111,7 @@ def handler(event):
         prompt = validated_input["prompt"]
         ratio = validated_input["ratio"]
         output_format = validated_input.get("output_format", "base64")
-        seed = validated_input.get("seed")
+        # seed = validated_input.get("seed")  # seed 파라미터 제거됨
 
         # 이미지 소스 처리 (S3 URL, HTTP URL, 또는 base64)
         if is_s3_url(image_source):
@@ -167,15 +167,10 @@ def handler(event):
 
             return {"latents": latents}
 
-        # 시드 설정 (사용자가 지정하지 않으면 랜덤)
-        import random
-        if seed is None:
-            seed = random.randint(1, 1000000)
-            print(f"랜덤 시드 생성: {seed}")
-        else:
-            print(f"사용자 지정 시드: {seed}")
+        # 시드 관련 코드 제거됨 - FluxKontextPipeline에서 지원하지 않음
         
-        output_image = model(image=input_image, prompt=prompt, width=width, height=height, guidance_scale=2.5, seed=seed, callback_on_step_end=on_step_end_callback,
+        # seed 파라미터는 FluxKontextPipeline에서 지원하지 않으므로 제거
+        output_image = model(image=input_image, prompt=prompt, width=width, height=height, guidance_scale=2.5, callback_on_step_end=on_step_end_callback,
     callback_on_step_end_tensor_inputs=["latents"]).images[0]
         
         # 출력 형식에 따라 처리

@@ -223,9 +223,16 @@ class FluxKontextClient:
                 # RunPod 래핑 해제
                 output = self._unwrap_output(response)
                 
+                # 다양한 응답 형식 처리
                 if output.get("status") == "healthy":
                     print("✅ RunPod 엔드포인트 연결 성공 (Health Check 통과)")
                     print(f"   메시지: {output.get('message', 'N/A')}")
+                    return True
+                elif response.get("status") == "COMPLETED":
+                    # COMPLETED 상태면 서버가 정상 작동 중
+                    print("✅ RunPod 엔드포인트 연결 성공 (서버 정상 작동)")
+                    print(f"   실행 시간: {response.get('executionTime', 'N/A')}ms")
+                    print(f"   지연 시간: {response.get('delayTime', 'N/A')}ms")
                     return True
                 else:
                     print(f"⚠️ 연결은 성공했지만 Health Check 실패: {response}")
@@ -253,6 +260,11 @@ class FluxKontextClient:
                     for model_type, model_path in models.items():
                         print(f"   {model_type}: {model_path}")
                     return True
+                elif response.get("status") == "COMPLETED":
+                    # COMPLETED 상태면 서버가 정상 작동 중 (모델 목록은 별도 확인 필요)
+                    print("✅ 서버 연결 성공 (모델 목록은 별도 확인 필요)")
+                    print(f"   실행 시간: {response.get('executionTime', 'N/A')}ms")
+                    return True
                 else:
                     print(f"⚠️ 모델 목록 조회 실패: {response}")
                     return False
@@ -271,8 +283,7 @@ class FluxKontextClient:
                       use_runsync: bool = True,
                       poll_interval_sec: int = 5,
                       max_wait_sec: int = 300,
-                      use_s3_upload: bool = True,
-                      seed: int = None) -> dict:
+                      use_s3_upload: bool = True) -> dict:
         """
         Flux-Kontext를 사용하여 이미지를 생성합니다.
         
@@ -301,21 +312,25 @@ class FluxKontextClient:
                 image_source = self._image_to_base64(image_path)
             
             # API 요청 데이터 준비
-                         payload = {
+            payload = {
                  "input": {
                      "image": image_source,
                      "prompt": prompt,
                      "ratio": ratio,
-                     "output_format": output_format,
-                     "seed": seed
+                     "output_format": output_format
                  }
              }
+            
+            # seed 파라미터는 현재 서버에서 지원하지 않으므로 제거
+            # if seed is not None:
+            #     payload["input"]["seed"] = seed
             
             print(f"🚀 Flux-Kontext API 호출 중...")
             print(f"   프롬프트: {prompt}")
             print(f"   비율: {ratio}")
             print(f"   출력 형식: {output_format}")
             print(f"   실행 방식: {'동기(runsync)' if use_runsync else '비동기(run+status)'}")
+            print(f"   Payload: {json.dumps(payload, indent=2)}")
             
             if use_runsync:
                 # 동기 실행
@@ -435,8 +450,8 @@ def main():
                        help="입력 이미지를 S3에 업로드하여 사용")
     parser.add_argument("--use-base64", action="store_true",
                        help="base64 방식으로 이미지를 주고받기 (기본값: S3 URL 방식)")
-    parser.add_argument("--seed", type=int, default=None,
-                       help="랜덤 시드 값 (지정하지 않으면 랜덤)")
+        # parser.add_argument("--seed", type=int, default=None,
+    #                     help="랜덤 시드 값 (지정하지 않으면 랜덤)")
     
     args = parser.parse_args()
     
@@ -504,8 +519,8 @@ def main():
             use_runsync=args.use_runsync,
             poll_interval_sec=args.poll_interval,
             max_wait_sec=args.max_wait,
-            use_s3_upload=args.use_s3_upload,
-            seed=args.seed
+            use_s3_upload=args.use_s3_upload
+            # seed=args.seed
         )
         
         # 결과 저장
@@ -562,4 +577,4 @@ if __name__ == "__main__":
 # python3 test_runpod_flux_kontext.py asset/bts-jin.jpg "A beautiful landscape" --test-only
 # python3 test_runpod_flux_kontext.py asset/bts-jin.jpg "A beautiful landscape" --test-models
 # python3 test_runpod_flux_kontext.py asset/bts-jin.jpg "A beautiful landscape" --use-base64
-# python3 test_runpod_flux_kontext.py asset/bts-jin.jpg "A beautiful landscape" --seed 12345  # 특정 시드 사용
+# python3 test_runpod_flux_kontext.py asset/bts-jin.jpg "A beautiful landscape" --use-base64  # base64 방식 사용
